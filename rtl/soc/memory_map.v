@@ -25,9 +25,9 @@ module memory_map (
     // ADDRESS DECODING
     // =====================================
 
-    // RAM: 0x00000000 - 0x000003FF
+    // RAM: 0x00000000 - 0x000000FF
     wire ram_select =
-        (data_addr[31:10] == 22'b0);
+        (data_addr[31:8] == 24'b0);
 
     // UART: 0x10000000 - 0x1000000F
     assign uart_select =

@@ -10,8 +10,8 @@ module data_memory(
     output reg [31:0] read_data
 );
 
-    // 256 words x 32 bits = 1 KiB
-    reg [31:0] memory [0:255];
+    // 64 words x 32 bits = 256 bytes
+    reg [31:0] memory [0:63];
 
     // Asynchronous read logic
     always @(*) begin
@@ -27,20 +27,20 @@ module data_memory(
                     case (address[1:0])
 
                         2'b00:
-                            read_data = {{24{memory[address[9:2]][7]}},
-                                         memory[address[9:2]][7:0]};
+                            read_data = {{24{memory[address[7:2]][7]}},
+                                         memory[address[7:2]][7:0]};
 
                         2'b01:
-                            read_data = {{24{memory[address[9:2]][15]}},
-                                         memory[address[9:2]][15:8]};
+                            read_data = {{24{memory[address[7:2]][15]}},
+                                         memory[address[7:2]][15:8]};
 
                         2'b10:
-                            read_data = {{24{memory[address[9:2]][23]}},
-                                         memory[address[9:2]][23:16]};
+                            read_data = {{24{memory[address[7:2]][23]}},
+                                         memory[address[7:2]][23:16]};
 
                         2'b11:
-                            read_data = {{24{memory[address[9:2]][31]}},
-                                         memory[address[9:2]][31:24]};
+                            read_data = {{24{memory[address[7:2]][31]}},
+                                         memory[address[7:2]][31:24]};
 
                     endcase
                 end
@@ -50,11 +50,11 @@ module data_memory(
                     if (address[0] == 1'b0) begin
 
                         if (address[1] == 1'b0)
-                            read_data = {{16{memory[address[9:2]][15]}},
-                                         memory[address[9:2]][15:0]};
+                            read_data = {{16{memory[address[7:2]][15]}},
+                                         memory[address[7:2]][15:0]};
                         else
-                            read_data = {{16{memory[address[9:2]][31]}},
-                                         memory[address[9:2]][31:16]};
+                            read_data = {{16{memory[address[7:2]][31]}},
+                                         memory[address[7:2]][31:16]};
 
                     end
                 end
@@ -62,17 +62,17 @@ module data_memory(
                 // LW: Load word
                 3'b010: begin
                     if (address[1:0] == 2'b00)
-                        read_data = memory[address[9:2]];
+                        read_data = memory[address[7:2]];
                 end
 
                 // LBU: Load unsigned byte
                 3'b100: begin
                     case (address[1:0])
 
-                        2'b00: read_data = {24'b0, memory[address[9:2]][7:0]};
-                        2'b01: read_data = {24'b0, memory[address[9:2]][15:8]};
-                        2'b10: read_data = {24'b0, memory[address[9:2]][23:16]};
-                        2'b11: read_data = {24'b0, memory[address[9:2]][31:24]};
+                        2'b00: read_data = {24'b0, memory[address[7:2]][7:0]};
+                        2'b01: read_data = {24'b0, memory[address[7:2]][15:8]};
+                        2'b10: read_data = {24'b0, memory[address[7:2]][23:16]};
+                        2'b11: read_data = {24'b0, memory[address[7:2]][31:24]};
 
                     endcase
                 end
@@ -82,9 +82,9 @@ module data_memory(
                     if (address[0] == 1'b0) begin
 
                         if (address[1] == 1'b0)
-                            read_data = {16'b0, memory[address[9:2]][15:0]};
+                            read_data = {16'b0, memory[address[7:2]][15:0]};
                         else
-                            read_data = {16'b0, memory[address[9:2]][31:16]};
+                            read_data = {16'b0, memory[address[7:2]][31:16]};
 
                     end
                 end
@@ -110,10 +110,10 @@ module data_memory(
 
                     case (address[1:0])
 
-                        2'b00: memory[address[9:2]][7:0]   <= write_data[7:0];
-                        2'b01: memory[address[9:2]][15:8]  <= write_data[7:0];
-                        2'b10: memory[address[9:2]][23:16] <= write_data[7:0];
-                        2'b11: memory[address[9:2]][31:24] <= write_data[7:0];
+                        2'b00: memory[address[7:2]][7:0]   <= write_data[7:0];
+                        2'b01: memory[address[7:2]][15:8]  <= write_data[7:0];
+                        2'b10: memory[address[7:2]][23:16] <= write_data[7:0];
+                        2'b11: memory[address[7:2]][31:24] <= write_data[7:0];
 
                     endcase
 
@@ -125,9 +125,9 @@ module data_memory(
                     if (address[0] == 1'b0) begin
 
                         if (address[1] == 1'b0)
-                            memory[address[9:2]][15:0] <= write_data[15:0];
+                            memory[address[7:2]][15:0] <= write_data[15:0];
                         else
-                            memory[address[9:2]][31:16] <= write_data[15:0];
+                            memory[address[7:2]][31:16] <= write_data[15:0];
 
                     end
 
@@ -137,7 +137,7 @@ module data_memory(
                 3'b010: begin
 
                     if (address[1:0] == 2'b00)
-                        memory[address[9:2]] <= write_data;
+                        memory[address[7:2]] <= write_data;
 
                 end
 

@@ -1,0 +1,53 @@
+
+# ==========================================
+# SCL C1D 1.2um - RISC-V SoC synthesis
+# Top module: soc_chip_top
+# ==========================================
+
+# Read RTL sources
+read_verilog rtl/alu_operand_a_mux.v
+read_verilog rtl/alu_operand_mux.v
+read_verilog rtl/alu.v
+read_verilog rtl/control_unit.v
+read_verilog rtl/data_memory.v
+read_verilog rtl/immediate_generator.v
+read_verilog rtl/inst_memory.v
+read_verilog rtl/next_pc_logic.v
+read_verilog rtl/pc_reg.v
+
+read_verilog rtl/peripherals/uart_controller.v
+read_verilog rtl/peripherals/uart_rx_fifo.v
+read_verilog rtl/peripherals/uart_rx.v
+read_verilog rtl/peripherals/uart_tx_fifo.v
+read_verilog rtl/peripherals/uart_tx_subsystem.v
+read_verilog rtl/peripherals/uart_tx.v
+
+read_verilog rtl/register_file.v
+read_verilog rtl/riscv_cpu.v
+read_verilog rtl/soc/memory_map.v
+read_verilog rtl/soc/soc_top.v
+read_verilog rtl/soc/soc_chip_top.v
+read_verilog rtl/writeback_mux.v
+
+# Check hierarchy
+hierarchy -check -top soc_chip_top
+
+# Generic synthesis
+synth -top soc_chip_top -flatten -noabc
+
+# Map sequential cells
+dfflibmap -liberty /home/echiphub/my_dtech/Open_Source_SCL_1.2micron_PDK_digital/open_source_scl_c1d/open_pdks/sclc1d/digital_c1d/lib/c1d_core_typ.lib
+
+# Map combinational logic
+abc -liberty /home/echiphub/my_dtech/Open_Source_SCL_1.2micron_PDK_digital/open_source_scl_c1d/open_pdks/sclc1d/digital_c1d/lib/c1d_core_typ.lib
+
+# Final cleanup and checks
+clean
+check
+
+# Cell statistics
+stat -liberty /home/echiphub/my_dtech/Open_Source_SCL_1.2micron_PDK_digital/open_source_scl_c1d/open_pdks/sclc1d/digital_c1d/lib/c1d_core_typ.lib
+
+# Export mapped netlist
+write_verilog -noattr build/synthesis/soc_chip_top_mapped.v
+
