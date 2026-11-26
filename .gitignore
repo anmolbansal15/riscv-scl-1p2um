@@ -1,0 +1,29 @@
+# Simulation outputs
+*.vcd
+*.vvp
+*.out
+
+# Compiled simulation binaries
+sim/*_sim
+
+# Editor temporary files
+*.swp
+*~
+
+# Physical-design run directories
+runs/
+logs/
+
+# Tool-generated databases and temporary files
+*.odb
+*.tmp
+*.bak
+*.jou
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS-generated files
+.DS_Store
