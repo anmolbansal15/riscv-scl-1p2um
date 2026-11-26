@@ -2,7 +2,7 @@
 
 An educational implementation of a small, single-cycle RISC-V processor written in Verilog. The project is developed incrementally to build a practical understanding of RTL design, datapath architecture, instruction decoding, and simulation-based verification.
 
-> **Status: Functionally integrated RISC-V SoC prototype.** The single-cycle processor recognizes 40 base RV32I instruction encodings and is integrated with a 1 KiB data RAM and a memory-mapped UART. The UART has 4-byte TX and RX FIFOs, an 8-N-1 transmitter/receiver, status registers, and a 10 MHz initial system-clock target with `CLKS_PER_BIT=87` for approximately 115200 baud. CPU-controlled loopback simulations have verified single-byte communication, three-byte communication, and a six-byte TX polling program. The processor is not a complete or formally verified RV32I implementation; privileged trap handling, robust bus backpressure, and ASIC physical implementation remain incomplete.
+> **Status: Functionally integrated SoC; SCL 1.2 µm synthesis baseline generated.** The single-cycle processor recognizes 40 base RV32I instruction encodings and is integrated with a 256-byte data RAM, a fixed 256 × 32-bit instruction ROM image, and a memory-mapped UART. The UART has 4-byte TX and RX FIFOs, an 8-N-1 transmitter/receiver, and a 10 MHz initial system-clock target with `CLKS_PER_BIT=87` (approximately 114942.5 baud). CPU-controlled loopback simulations have verified single-byte, three-byte, and six-byte TX-polling programs. The SCL-specific Yosys synthesis flow currently maps 11,100 standard cells with an estimated mapped cell area of 35,149.97 µm². This is a synthesis result only: floorplanning, placement, CTS, routing, signoff, and tapeout are not complete. The processor is not a complete or formally verified RV32I implementation; privileged trap handling and robust bus backpressure remain incomplete.
 
 ## Project goals
 
@@ -77,7 +77,7 @@ The processor-core module is `rtl/riscv_cpu.v`. It instantiates and connects the
 | `alu_operand_mux` | Selects register data or the immediate as ALU operand B |
 | `alu_operand_a_mux` | Selects `rs1`, the current PC, or constant zero as ALU operand A |
 | `alu` | Performs arithmetic, logical, comparison, and shift operations and generates a zero flag |
-| `data_memory` | Implements little-endian byte, halfword, and word loads/stores using a 256 × 32-bit word array |
+| `data_memory` | Implements little-endian byte, halfword, and word loads/stores using a 64 × 32-bit word array (256 bytes) |
 | `writeback_mux` | Selects the ALU result, data-memory output, or `PC + 4` link address for register write-back |
 | `next_pc_logic` | Selects sequential, conditional-branch, JAL, or JALR next-PC values; holds the PC when `exception_valid` is asserted |
 
@@ -122,7 +122,7 @@ When `EXTERNAL_DATA_BUS=0`, the CPU uses its internal `data_memory` instance. Wh
 
 | Address range / address | Register or memory | Access |
 |---|---|---|
-| `0x00000000–0x000003FF` | 1 KiB data RAM (256 × 32-bit words) | Byte, halfword and word operations supported by `data_memory` |
+| `0x00000000–0x000000FF` | 256-byte data RAM (64 × 32-bit words) | Byte, halfword and word operations supported by `data_memory` |
 | `0x10000000` | UART TXDATA | Aligned 32-bit write |
 | `0x10000004` | UART RXDATA | Aligned 32-bit read; reading consumes the oldest RX FIFO byte |
 | `0x10000008` | UART STATUS | Aligned 32-bit read |
@@ -162,7 +162,7 @@ The current CPU external data bus has no ready/stall handshake. A TXDATA store p
 
 ### Instruction-memory initialization
 
-`inst_memory.v` is a 256 × 32-bit instruction array and does not contain a hardware HEX-file loader. Simulation testbenches initialize it hierarchically: they fill unused entries with the RISC-V NOP encoding and then call `$readmemh` for the program words. This is a simulation setup technique, not a physical ASIC boot mechanism. The ASIC implementation still needs a defined instruction-storage solution (for example, a ROM, SRAM macro with a loading mechanism, or external boot interface).
+`inst_memory.v` is a 256 × 32-bit instruction array. For the SCL tapeout candidate, it initializes from `programs/soc_uart_multi_rom.hex` using `$readmemh`. The image contains the 18-word CPU-controlled UART multi-character demo followed by NOP (`00000013`) padding to 256 words. The ROM is a fixed program image for this implementation; changing the executed program requires changing the HEX image and regenerating the mapped netlist. Confirm the foundry's accepted ROM implementation and initialization treatment during physical-design handoff; behavioral RTL initialization alone does not establish a mask-ROM or embedded-memory macro implementation.
 
 ## Repository layout
 
@@ -177,7 +177,9 @@ riscv-processor/
 │   ├── uart/                    # UART block and controller tests
 │   └── soc/                     # memory-map and full-SoC tests
 ├── programs/                    # RISC-V machine-code programs
-├── asic/                        # ASIC-flow configuration/constraints (work in progress)
+├── scripts/                     # SCL synthesis scripts
+├── build/                       # Generated synthesis outputs (not tracked)
+├── logs/                        # Generated tool logs (not tracked)
 ├── sim/                         # Local executables and VCDs (not tracked)
 ├── README.md
 └── .gitignore
@@ -472,22 +474,83 @@ To inspect a waveform, open the VCD file named by the relevant testbench's `$dum
 gtkwave sim/riscv_cpu.vcd
 ```
 
+
+## NIELIT SCL C1D 1.2 µm ASIC implementation
+
+The separate tapeout-oriented implementation uses the NIELIT SCL C1D 1.2 µm PDK. The synthesis top is `rtl/soc/soc_chip_top.v`, which wraps `soc_top` and exposes four functional signals:
+
+| Chip signal | Direction | Function |
+|---|---|---|
+| `clk` | Input | System clock |
+| `rst` | Input | Active-high reset |
+| `uart_rx` | Input | UART serial receive |
+| `uart_tx` | Output | UART serial transmit |
+
+Debug and exception outputs remain internal to the chip wrapper. These four functional signals do not represent the final package-terminal count: power, ground, corner, test, pad-frame, and package requirements must be resolved separately with the foundry.
+
+### SCL memory configuration
+
+| Resource | Configuration | Address / initialization |
+|---|---|---|
+| Instruction ROM | 256 × 32 bits | Fixed image: `programs/soc_uart_multi_rom.hex` |
+| Data RAM | 64 × 32 bits (256 bytes) | `0x00000000–0x000000FF` |
+| UART | Memory-mapped controller | `0x10000000–0x1000000F` |
+
+The fixed ROM image contains 18 instructions for the UART multi-character demonstration and 238 NOP words for padding. The program sends demo characters, polls for received data, reads the received bytes, and stores them in data RAM. The demo's RAM data begins at address `0x40`. The 256-byte RAM is a deliberate area-reduction choice; it limits available software data space and is not a general-purpose 1 KiB memory configuration.
+
+The UART configuration remains 8-N-1 with four-entry TX and RX FIFOs. At a 10 MHz clock and `CLKS_PER_BIT=87`, the nominal baud rate is approximately 114942.5 baud.
+
+### Synthesis flow
+
+The SCL synthesis script is `scripts/scl_synthesis.ys`. It reads the SoC RTL, selects `soc_chip_top` as the top, maps sequential and combinational logic against the SCL C1D typical Liberty library, and writes:
+
+```text
+build/synthesis/soc_chip_top_mapped.v
+```
+
+Run from the repository root after configuring the SCL PDK paths in the synthesis script:
+
+```bash
+mkdir -p logs
+yosys -s scripts/scl_synthesis.ys 2>&1 | tee logs/scl_synthesis_256B.log
+```
+
+This invokes Yosys with the project synthesis script and saves the tool output in the log file. The generated `build/` and `logs/` directories are local build products and are not intended for version control.
+
+### Current mapped synthesis baseline
+
+| Metric | Result |
+|---|---:|
+| Mapped standard-cell count | 11,100 |
+| Estimated mapped standard-cell area | 35,149.97 µm² |
+| DFFL11 | 2,656 |
+| MX2101 | 2,765 |
+
+The area is the sum of mapped standard-cell Liberty areas reported by Yosys. It is not core area or die area, and it does not include a completed physical-design estimate for utilization, routing, pad ring, or power structures.
+
+**Outstanding synthesis warning:** Yosys 0.9 reports that the internal UART TX net is used but has no driver during its post-map `check` pass. Inspection of the mapped Verilog showed a `DFPR11` flip-flop Q output connected to that internal TX net, which is then assigned through the UART hierarchy to the chip output. The warning is therefore not yet explained or cleared; retain it as an open synthesis-review item rather than suppressing it.
+
+### Physical-design status
+
+The current milestone is **RTL synthesis and mapped-netlist review**. No completed SCL floorplan, I/O pad placement, power distribution network, placement, clock-tree synthesis, routing, timing closure, DRC, LVS, or tapeout GDSII is claimed. Before floorplanning, create and review SCL-specific timing constraints and confirm the foundry's required pad-frame, package, power/ground, and test-pin arrangements. Do not substitute Sky130 technology files or flow settings for the SCL C1D PDK.
+
+
 ## Current design assumptions and limitations
 
 - **Instruction set:** The decoder recognizes 40 base RV32I instruction encodings: `ADD`, `SUB`, `SLL`, `SLT`, `SLTU`, `XOR`, `SRL`, `SRA`, `OR`, `AND`, `ADDI`, `SLLI`, `SLTI`, `SLTIU`, `XORI`, `SRLI`, `SRAI`, `ORI`, `ANDI`, `LB`, `LH`, `LW`, `LBU`, `LHU`, `SB`, `SH`, `SW`, `BEQ`, `BNE`, `BLT`, `BGE`, `BLTU`, `BGEU`, `LUI`, `AUIPC`, `JAL`, `JALR`, `FENCE`, `ECALL`, and `EBREAK`. This describes decoder coverage and the implemented control responses; it does not imply complete architectural or privileged-ISA compliance.
 - **Immediate formats:** The Immediate Generator supports I-, S-, B-, U-, and J-type immediates. The selector is three bits wide: `000`=I, `001`=S, `010`=B, `011`=U, and `100`=J.
 - **ALU decoding:** The four-bit ALU control selects ADD, SUB, AND, OR, XOR, signed/unsigned less-than, logical left/right shifts, and arithmetic right shifts.
-- **Memory size:** Instruction Memory and Data Memory each contain 256 words × 32 bits (1 KiB). Data Memory is little-endian and uses a byte-addressed interface over its 32-bit word array.
-- **Address mapping:** Data Memory uses address bits `[9:2]` to select a word and `[1:0]` to select a byte lane. Byte loads/stores may use any byte address; halfword accesses require an even address, and word accesses require a four-byte-aligned address. Misaligned halfword/word reads return zero and writes are ignored; no architectural misalignment exception is generated. Address bits `[31:10]` are not checked, so addresses can alias within the 1 KiB array.
+- **Memory size:** Instruction Memory is 256 words × 32 bits (1 KiB). The SCL SoC candidate Data Memory is 64 words × 32 bits (256 bytes). Data Memory is little-endian and uses a byte-addressed interface over its 32-bit word array.
+- **Address mapping:** In the SCL SoC configuration, the memory map decodes data RAM at `0x00000000–0x000000FF`. Data Memory uses address bits `[7:2]` to select one of 64 words and `[1:0]` to select a byte lane. Byte loads/stores may use any byte address; halfword accesses require an even address, and word accesses require a four-byte-aligned address. Misaligned halfword/word reads return zero and writes are ignored; no architectural misalignment exception is generated.
 - **Data Memory timing:** Reads are asynchronous and writes occur on the rising clock edge. This is a behavioral model; FPGA block RAM implementations may require synchronous-read timing changes. Subword stores update only the selected byte or halfword lanes.
 - **Register file:** The register file has no reset input. Register x0 always reads as zero, and writes to x0 are ignored. Other registers are not initialized by the RTL.
-- **Memory initialization:** Instruction memory is a 256 × 32-bit array with no RTL file-loader. Processor and SoC testbenches initialize it hierarchically, fill unused locations with NOPs, and load machine-code words using `$readmemh`. Data memory is not reset or initialized by the RTL; tests should write locations before depending on their contents.
+- **Memory initialization:** The SCL chip wrapper's instruction ROM loads the fixed `programs/soc_uart_multi_rom.hex` image at elaboration/synthesis. The image is 256 words (18 program instructions plus NOP padding). Data RAM is not reset or initialized by the RTL; software must initialize locations before depending on their contents.
 - **External data bus:** `riscv_cpu` can use its internal data memory (`EXTERNAL_DATA_BUS=0`) or expose a data interface (`EXTERNAL_DATA_BUS=1`). The SoC uses external-bus mode and routes requests through `memory_map.v`.
 - **Memory-mapped UART:** UART accesses must be aligned 32-bit transactions. TXDATA is write-only; RXDATA, STATUS, and BAUD_DIV are read-only. The current implementation has no interrupt support.
 - **UART buffering and flow control:** TX and RX FIFOs are each four bytes deep. The CPU uses software polling of TX_FULL and RX_VALID. The external CPU data bus has no ready/stall response, so a TXDATA store made while the FIFO is full may be rejected rather than held pending.
 - **UART error flags:** RX_OVERRUN and RX_FRAME_ERROR are sticky until reset in the current controller. Software-controlled clear bits are not implemented. There is no RTS/CTS hardware flow control.
 - **Clock/baud assumption:** The initial system-clock target is 10 MHz. With `CLKS_PER_BIT=87`, the UART baud rate is approximately 114942.5 baud. This is an initial parameter choice, not a measured ASIC maximum-frequency result.
-- **ASIC status:** No synthesis, timing closure, floorplan, placement, CTS, routing, DRC, LVS, or GDSII result is claimed by the functional simulations.
+- **ASIC status:** An SCL 1.2 µm standard-cell synthesis baseline has been generated using `scripts/scl_synthesis.ys` and the NIELIT SCL C1D typical Liberty library. The mapped netlist reports 11,100 cells and an estimated standard-cell area of 35,149.97 µm². This is not core area or die area and does not establish timing closure. Floorplan, placement, CTS, routing, DRC, LVS, and final GDSII have not been completed.
 - **Control-flow:** All six conditional branches are decoded. `JAL` selects `PC + J-immediate`; `JALR` selects `(rs1 + I-immediate) & ~1`. Both write `PC + 4` to `rd`. JALR clears bit 0 as required, but the current design does not generate an instruction-address-misaligned exception when bit 1 remains set under a four-byte instruction-alignment configuration.
 - **FENCE:** `FENCE` with `funct3=000` is recognized. It performs no extra datapath action because this implementation is single-hart and in-order and has no store buffer or outstanding memory transactions. This assumption must be revisited if caches, buffering, multiple harts, or externally observable memory transactions are added. `FENCE.I` is not implemented.
 - **Exceptions:** Exact `ECALL` and `EBREAK` encodings report causes 11 (M-mode environment call) and 3 (breakpoint), respectively. The top-level exposes `exception_valid`, `exception_cause`, and `exception_pc`; the PC is held at the faulting instruction while the exception remains asserted. There is no `mtvec`, `mepc`, `mcause`, `mstatus`, CSR instruction support, trap-handler entry, privilege-mode machinery, or `MRET`. This is exception reporting with PC hold, not a complete machine-mode trap implementation.
@@ -508,8 +571,8 @@ gtkwave sim/riscv_cpu.vcd
 2. Improve peripheral transaction handling: add a clear/acknowledge mechanism for sticky UART errors and decide whether to add a ready/stall handshake or retain a documented software-polling contract.
 3. Complete full-FIFO and RX-overrun tests at the CPU/SoC level, including explicit coverage that the TX FIFO reaches full while software polling prevents rejected writes.
 4. Define the ASIC instruction-memory implementation (ROM, SRAM macro plus loading mechanism, or external boot interface) and review how the behavioral data RAM maps to a physical memory implementation.
-5. Establish an OpenROAD-flow-scripts RTL-to-GDS flow for the Sky130A `sky130_fd_sc_hd` library. Synthesis, timing analysis, floorplanning, placement, CTS, routing, DRC, LVS, and GDSII generation have not yet been completed.
-6. Maintain a separate NIELIT 1.2 µm implementation track using only the NIELIT-provided VM, PDK, libraries, I/O cells, design rules, and flow documentation. Do not reuse Sky130-specific physical-design settings for that process.
+5. Complete the NIELIT SCL C1D 1.2 µm physical-design flow using only the NIELIT-provided PDK, Liberty/LEF/GDS/CDL views, I/O cells, design rules, and flow documentation. Do not reuse Sky130-specific physical-design settings.
+6. Review mapped-netlist warnings, establish and review SCL-specific timing constraints, then proceed through floorplanning, I/O planning, power planning, placement, CTS, routing, physical verification, and GDSII preparation.
 
 ## Disclaimer
 
